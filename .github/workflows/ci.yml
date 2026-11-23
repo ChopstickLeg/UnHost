@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  backend:
+    name: C# unit and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Run solution tests
+        run: >-
+          dotnet test UnHost.slnx --configuration Release
+          -p:ShouldRunNpmInstall=false -p:ShouldRunBuildScript=false
+          --filter "Category!=Smoke"
+          --logger "trx;LogFileName=backend.trx" --results-directory TestResults
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: backend-test-results
+          path: TestResults/*.trx
+          if-no-files-found: error
+
+  frontend:
+    name: TypeScript unit and Vue integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: unhost-ui
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: unhost-ui/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:ci
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: frontend-test-results
+          path: TestResults/frontend.xml
+          if-no-files-found: error
+
+  native-container:
+    name: Linux Native AOT smoke, browser tests, and publish
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      UNHOST_SMOKE_IMAGE: unhost-ci:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: docker/setup-buildx-action@v4
+      - name: Publish Linux Native AOT container locally
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.UNHOST_SMOKE_IMAGE }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-test the published container
+        run: >-
+          dotnet test UnHost.slnx --configuration Release
+          -p:ShouldRunNpmInstall=false -p:ShouldRunBuildScript=false
+          --filter "Category=Smoke"
+          --logger "trx;LogFileName=smoke.trx" --results-directory TestResults
+      - name: Install browser test dependencies
+        run: npm ci --prefix unhost-ui
+      - name: Install Chromium
+        working-directory: unhost-ui
+        run: npm exec -- playwright install --with-deps chromium
+      - name: Test the published container through Chromium
+        working-directory: unhost-ui
+        run: npm run test:e2e
+      - name: Export the tested Linux executable and UI
+        run: |
+          container_id=$(docker create "$UNHOST_SMOKE_IMAGE")
+          trap 'docker rm "$container_id"' EXIT
+          mkdir -p artifacts/linux-x64
+          docker cp "$container_id:/app/." artifacts/linux-x64/
+          tar -czf artifacts/unhost-linux-x64.tar.gz -C artifacts/linux-x64 .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unhost-linux-x64
+          path: artifacts/unhost-linux-x64.tar.gz
+          if-no-files-found: error
+      - name: Sign in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the exact smoke-tested image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}"
+          docker tag "$UNHOST_SMOKE_IMAGE" "$image:sha-$GITHUB_SHA"
+          docker tag "$UNHOST_SMOKE_IMAGE" "$image:latest"
+          docker push "$image:sha-$GITHUB_SHA"
+          docker push "$image:latest"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-smoke-test-results
+          path: TestResults/*.trx
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: browser-test-results
+          path: |
+            TestResults/browser.xml
+            TestResults/browser-artifacts/
+            TestResults/playwright-report/
+          if-no-files-found: error

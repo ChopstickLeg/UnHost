@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
@@ -6,10 +6,21 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
     <PublishAot>true</PublishAot>
+    <!-- Infrastructure owns EF generation. The API references a JavaScript project that Roslyn cannot load. -->
+    <EFScaffoldModelStage>none</EFScaffoldModelStage>
+    <EFPrecompileQueriesStage>none</EFPrecompileQueriesStage>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="11.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="11.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tasks" Version="11.0.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\unhost-ui\unhost-ui.esproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Unhost.Infrastructure\Unhost.Infrastructure.csproj" />
   </ItemGroup>
   
 </Project>

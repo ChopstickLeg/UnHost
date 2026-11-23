@@ -1,48 +1,95 @@
-using Microsoft.AspNetCore.Http.HttpResults;
-using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
+using Unhost.API.Endpoints;
+using Unhost.Application.Models.Database;
+using Unhost.Infrastructure.Database;
 
 var builder = WebApplication.CreateSlimBuilder(args);
+var dataDirectory = Path.GetFullPath(builder.Configuration["UnHost:DataDirectory"] ?? ".");
+Directory.CreateDirectory(dataDirectory);
+var connectionString = new SqliteConnectionStringBuilder(UnhostDbContext.DefaultConnectionString)
+{
+    DataSource = Path.Combine(dataDirectory, "unhost.db")
+}.ToString();
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
 });
 
+builder.Services.AddIdentityCore<OperatorUser>(options =>
+    {
+        options.User.RequireUniqueEmail = true;
+    })
+    .AddUserStore<EfOperatorStore>()
+    .AddUserManager<AspNetUserManager<OperatorUser>>()
+    .AddSignInManager();
+
+builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
+    .AddIdentityCookies();
+
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+});
+
+builder.Services.AddAuthorization();
+
+builder.Services.AddValidation();
+
+builder.Services.AddDataProtection()
+    .SetApplicationName("UnHost")
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDirectory, "DataProtection-Keys")));
+
+builder.Services.AddDbContext<UnhostDbContext>(options =>
+    options.UseSqlite(connectionString));
+
+builder.Services.AddScoped<FirstRunSetup>();
+builder.Services.AddScoped<EfOperatorStore>();
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+SqliteMigrations.Apply(connectionString);
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+var apiEndpoints = app.MapGroup("/api")
+    .AddEndpointFilter(ValidateCsrfToken)
+    .DisableCookieRedirect();
+
+apiEndpoints.MapIdentityEndpoints();
+apiEndpoints.MapStatusEndpoints();
+
+app.MapFallback("/api/{**path}", () => Results.NotFound());
+app.MapFallbackToFile("index.html");
 
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
-Todo[] sampleTodos =
-[
-    new(1, "Walk the dog"),
-    new(2, "Do the dishes", DateOnly.FromDateTime(DateTime.Now)),
-    new(3, "Do the laundry", DateOnly.FromDateTime(DateTime.Now.AddDays(1))),
-    new(4, "Clean the bathroom"),
-    new(5, "Clean the car", DateOnly.FromDateTime(DateTime.Now.AddDays(2)))
-];
-
-var todosApi = app.MapGroup("/todos");
-todosApi.MapGet("/", () => sampleTodos)
-        .WithName("GetTodos");
-
-todosApi.MapGet("/{id}", Results<Ok<Todo>, NotFound> (int id) =>
-    sampleTodos.FirstOrDefault(a => a.Id == id) is { } todo
-        ? TypedResults.Ok(todo)
-        : TypedResults.NotFound())
-    .WithName("GetTodoById");
-
 app.Run();
 
-public record Todo(int Id, string? Title, DateOnly? DueBy = null, bool IsComplete = false);
-
-[JsonSerializable(typeof(Todo[]))]
-internal partial class AppJsonSerializerContext : JsonSerializerContext
+static async ValueTask<object?> ValidateCsrfToken(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
 {
+    var httpContext = context.HttpContext;
+    var csrfProtection = httpContext.RequestServices.GetRequiredService<ICsrfProtection>();
+    var result = await csrfProtection.ValidateAsync(httpContext);
 
+    if (!result.IsAllowed)
+    {
+        return TypedResults.Forbid();
+    }
+    return await next(context);
 }
+
+public partial class Program;
