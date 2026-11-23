@@ -1,3 +1,10 @@
 <Solution>
+  <Project Path="unhost-ui/unhost-ui.esproj">
+    <Build />
+    <Deploy />
+  </Project>
   <Project Path="Unhost.API/Unhost.API.csproj" Id="557cd5c8-76c8-4dc2-9b90-e611ae9f51cb" />
+  <Project Path="Unhost.Application/Unhost.Application.csproj" Id="89011e3c-a274-4652-958d-a9b7369629ed" />
+  <Project Path="Unhost.Infrastructure/Unhost.Infrastructure.csproj" Id="59450c42-3261-4a79-8804-38cb953f15d8" />
+  <Project Path="Unhost.Tests/Unhost.Tests.csproj" />
 </Solution>

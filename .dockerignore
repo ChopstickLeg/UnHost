@@ -1,0 +1,16 @@
+.git
+.vs
+.aws
+.agents
+.codex
+.secrets
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/DataProtection-Keys
+**/auth.db*
+**/.env*
+Unhost.API/wwwroot
+TestResults
+artifacts
