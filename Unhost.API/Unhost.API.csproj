@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\unhost-ui\unhost-ui.esproj" />
+    <ProjectReference Include="..\unhost-ui\unhost-ui.esproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Unhost.Infrastructure\Unhost.Infrastructure.csproj" />
   </ItemGroup>
   
