@@ -163,7 +163,7 @@ onBeforeUnmount(clearCopiedState)
         <form v-else-if="cluster.state === 'standalone'" class="max-w-md space-y-3" @submit.prevent="initialize">
           <Label for="advertise-address">Advertised address</Label>
           <Input id="advertise-address" v-model="advertiseAddress" required maxlength="255"
-            placeholder="192.168.1.10" aria-describedby="advertise-help" />
+            placeholder="192.168.1.10" aria-describedby="advertise-help" :disabled="pending" />
           <p id="advertise-help" class="text-sm text-muted-foreground">
             Enter the host IP address or network interface that other nodes can reach.
           </p>

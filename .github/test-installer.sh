@@ -35,8 +35,9 @@ if [[ $host_state == worker ]]; then
         echo 'Installer unexpectedly accepted a Swarm worker.' >&2
         exit 1
     fi
-    cat "$test_dir/output"
-    rg -F 'This host is a Swarm worker.' "$test_dir/output"
+    output=$(cat "$test_dir/output")
+    printf '%s\n' "$output"
+    [[ $output == *'This host is a Swarm worker.'* ]]
     sudo test ! -e /opt/unhost
     exit 0
 fi
@@ -81,8 +82,16 @@ case $host_state in
         (( ${#packages[@]} > 0 ))
         sudo apt-get purge -y "${packages[@]}"
         sudo rm -f /var/run/docker.sock
+        # Bash can still resolve the executable from its command cache after apt removes it.
+        hash -r
         ! command -v docker && ! command -v dockerd && [[ ! -S /var/run/docker.sock ]] ||
             { echo 'The runner still has Docker installed.' >&2; exit 1; }
+        for source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [[ -f $source ]] || continue
+            if [[ $(<"$source") == *download.docker.com/linux/* ]]; then
+                sudo mv -- "$source" "$source.disabled-for-unhost-test"
+            fi
+        done
         ;;
     stopped)
         expected='Starting the Docker Engine service.'
@@ -103,8 +112,27 @@ case $host_state in
 esac
 
 sudo env UNHOST_IMAGE="$image" bash install.sh | tee "$test_dir/output"
-rg -F "$expected" "$test_dir/output"
-rg -F 'UnHost is running at http://127.0.0.1:8080' "$test_dir/output"
-curl -fsS http://127.0.0.1:8080/api/status | rg -F '{"setupComplete":false}'
+output=$(cat "$test_dir/output")
+[[ $output == *"$expected"* ]]
+[[ $output == *'UnHost is running at http://127.0.0.1:8080'* ]]
+[[ $(curl -fsS http://127.0.0.1:8080/api/status) == '{"setupComplete":false}' ]]
 sudo docker compose version
-sudo rg -q '^127\.0\.0\.1:5000/unhost-fixture@sha256:[a-f0-9]{64}$' /opt/unhost/image.txt
+pinned_image=$(sudo cat /opt/unhost/image.txt)
+[[ $pinned_image =~ ^127\.0\.0\.1:5000/unhost-fixture@sha256:[a-f0-9]{64}$ ]]
+
+if [[ $host_state == clean ]]; then
+    sudo test -s /etc/apt/sources.list.d/unhost-docker.sources
+    sudo test -s /etc/apt/keyrings/unhost-docker.asc
+fi
+
+if [[ $host_state == stopped ]]; then
+    bootstrap_checksum=$(sudo sha256sum /opt/unhost/bootstrap.txt)
+    # Remove the newline to also exercise a manually edited, otherwise valid pin.
+    printf '%s' "$pinned_image" | sudo tee /opt/unhost/image.txt >/dev/null
+    kill "$registry_pid"
+    wait "$registry_pid" || true
+    registry_pid=
+    sudo bash install.sh
+    [[ $(sudo cat /opt/unhost/image.txt) == "$pinned_image" ]]
+    [[ $(sudo sha256sum /opt/unhost/bootstrap.txt) == "$bootstrap_checksum" ]]
+fi

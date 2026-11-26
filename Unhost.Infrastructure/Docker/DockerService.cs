@@ -64,7 +64,8 @@ public sealed class DockerService : IDisposable
     {
         var nodes = await GetAsync("/nodes", Json.DockerNodeResponseArray, cancellationToken);
         if (nodes.Any(node => node is null || string.IsNullOrWhiteSpace(node.Id) ||
-            node.Spec is null || node.Status is null))
+            string.IsNullOrWhiteSpace(node.Spec?.Role) || string.IsNullOrWhiteSpace(node.Spec.Availability) ||
+            string.IsNullOrWhiteSpace(node.Status?.State)))
         {
             throw new JsonException("Docker returned incomplete Swarm node information.");
         }

@@ -54,8 +54,11 @@ builder.Services.AddDbContext<UnhostDbContext>(options =>
 builder.Services.AddScoped<FirstRunSetup>();
 builder.Services.AddScoped<EfOperatorStore>();
 builder.Services.AddScoped<LocalSwarmStore>();
-var dockerSocketPath = builder.Configuration["UnHost:DockerSocketPath"] ?? "/var/run/docker.sock";
-builder.Services.AddSingleton(_ => new DockerService(dockerSocketPath));
+var dockerSocketPath = builder.Configuration["UnHost:DockerSocketPath"];
+builder.Services.AddSingleton(_ => string.IsNullOrWhiteSpace(dockerSocketPath)
+    ? new DockerService()
+    : new DockerService(dockerSocketPath));
+builder.Services.AddSingleton<SwarmInitialization>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();

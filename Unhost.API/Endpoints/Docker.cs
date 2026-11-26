@@ -12,8 +12,6 @@ namespace Unhost.API.Endpoints;
 
 public static class Docker
 {
-    private static readonly SemaphoreSlim Initialization = new(1);
-
     public static void MapDockerEndpoints(this RouteGroupBuilder group)
     {
         var docker = group.MapGroup("/docker").RequireAuthorization()
@@ -68,11 +66,14 @@ public static class Docker
             nodes.Select(node => new ClusterNodeResponse(
                 node.Id, string.IsNullOrWhiteSpace(node.Description?.Hostname) ? node.Id : node.Description.Hostname,
                 node.Spec.Role, node.Status.State, node.Spec.Availability))
+                .OrderBy(node => node.Hostname, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(node => node.Id, StringComparer.Ordinal)
                 .ToArray()));
     }
 
     private static async Task<IResult> Init([FromBody] InitializeLocalSwarmRequest request,
-        [FromServices] DockerService docker, [FromServices] LocalSwarmStore store, CancellationToken cancellation)
+        [FromServices] DockerService docker, [FromServices] LocalSwarmStore store,
+        [FromServices] SwarmInitialization initialization, CancellationToken cancellation)
     {
         var address = request.AdvertiseAddress?.Trim();
         if (string.IsNullOrEmpty(address) || address.Length > 255 || address.Any(char.IsWhiteSpace))
@@ -80,7 +81,7 @@ public static class Docker
             return Results.Problem("Enter the host IP address or network interface other nodes can reach.", statusCode: 400);
         }
 
-        await Initialization.WaitAsync(cancellation);
+        await initialization.Gate.WaitAsync(cancellation);
         try
         {
             var state = EngineState(await docker.GetInfoAsync(cancellation));
@@ -95,11 +96,6 @@ public static class Docker
                 {
                     // Docker may already have applied initialization when the request failed.
                     var currentState = EngineState(await docker.GetInfoAsync(cancellation));
-                    if (currentState is "worker" or "unavailable")
-                    {
-                        return ManagerRequired();
-                    }
-
                     if (currentState == "standalone")
                     {
                         if (error.StatusCode == HttpStatusCode.ServiceUnavailable)
@@ -109,6 +105,11 @@ public static class Docker
 
                         return Results.Problem("Docker could not initialize Swarm. Verify the advertised address and try again.",
                             statusCode: 422);
+                    }
+
+                    if (currentState != "manager")
+                    {
+                        return ManagerRequired();
                     }
                 }
             }
@@ -121,7 +122,7 @@ public static class Docker
         }
         finally
         {
-            Initialization.Release();
+            initialization.Gate.Release();
         }
     }
 
@@ -189,6 +190,13 @@ public static class Docker
     private static bool IsDockerFailure(Exception error, CancellationToken cancellation) =>
         error is HttpRequestException or JsonException or NotSupportedException ||
         error is OperationCanceledException && !cancellation.IsCancellationRequested;
+}
+
+internal sealed class SwarmInitialization : IDisposable
+{
+    public SemaphoreSlim Gate { get; } = new(1, 1);
+
+    public void Dispose() => Gate.Dispose();
 }
 
 [JsonSerializable(typeof(InitializeLocalSwarmRequest))]

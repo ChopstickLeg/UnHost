@@ -4,4 +4,3 @@
 
 INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
 VALUES ('20261125030026_AddLocalSwarms', '11.0.0');
-

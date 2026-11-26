@@ -211,6 +211,14 @@ describe('operator UI integration', () => {
       destination: '/',
       heading: 'Dashboard',
     },
+    {
+      name: 'cluster URL with a session',
+      path: '/cluster',
+      setupComplete: true,
+      signedIn: true,
+      destination: '/',
+      heading: 'Dashboard',
+    },
   ])('redirects $name', async ({ path, setupComplete, signedIn, destination, heading }) => {
     fetchMock.mockResolvedValueOnce(json({ setupComplete }))
     if (setupComplete) {

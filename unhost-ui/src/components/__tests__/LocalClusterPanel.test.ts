@@ -99,3 +99,39 @@ describe('LocalClusterPanel join command copy buttons', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain('Unable to copy the join command')
   })
 })
+
+it('explains worker mode without offering cluster actions', async () => {
+  fetchMock.mockResolvedValueOnce(json({
+    ...managerCluster, state: 'worker', swarmId: null, imported: false,
+  }))
+  const wrapper = mount(LocalClusterPanel)
+  await flushPromises()
+
+  expect(wrapper.text()).toContain('Swarm worker')
+  expect(wrapper.text()).toContain('Connect UnHost to a manager')
+  expect(wrapper.find('#advertise-address').exists()).toBe(false)
+  expect(wrapper.findAll('button').map(button => button.text())).toEqual(['Refresh'])
+})
+
+it('disables the advertised address during initialization and shows blank-detail failures', async () => {
+  let finish: ((response: Response) => void) | undefined
+  fetchMock
+    .mockResolvedValueOnce(json({
+      ...managerCluster, state: 'standalone', swarmId: null, imported: false,
+    }))
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  const wrapper = mount(LocalClusterPanel)
+  await flushPromises()
+  const address = wrapper.get<HTMLInputElement>('#advertise-address')
+  await address.setValue(' eth0 ')
+  await wrapper.get('form').trigger('submit')
+  expect(address.element.disabled).toBe(true)
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/docker/init', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ advertiseAddress: 'eth0' }),
+  }))
+
+  finish?.(json({ detail: '  ' }, 422))
+  await flushPromises()
+  expect(address.element.disabled).toBe(false)
+  expect(wrapper.get('[role="alert"]').text()).toBe('Unable to complete the cluster request. Please try again.')
+})

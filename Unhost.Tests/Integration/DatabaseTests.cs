@@ -17,15 +17,25 @@ public sealed class DatabaseTests : IDisposable
     private UnhostDbContext NewContext() => new(new DbContextOptionsBuilder<UnhostDbContext>().UseSqlite(ConnectionString).Options);
 
     [Fact]
-    public async Task Migrations_CanRunTwiceWithoutLosingOperatorData()
+    public async Task Migrations_UpgradeFromIdentitySchemaWithoutLosingOperatorData()
     {
-        SqliteMigrations.Apply(ConnectionString);
+        using (var legacyConnection = new SqliteConnection(ConnectionString))
+        {
+            legacyConnection.Open();
+            using var initializeSchema = legacyConnection.CreateCommand();
+            using var originalSchema = typeof(SqliteMigrations).Assembly.GetManifestResourceStream(
+                "Unhost.Infrastructure.Database.Migrations.Sql.20261118021924_InitialCreate.sql")!;
+            using var reader = new StreamReader(originalSchema);
+            initializeSchema.CommandText = await reader.ReadToEndAsync();
+            await initializeSchema.ExecuteNonQueryAsync();
+        }
         await using (var context = NewContext())
         {
             context.Operators.Add(new OperatorUser { Id = "retained", Email = "retained@example.com" });
             await context.SaveChangesAsync();
         }
 
+        SqliteMigrations.Apply(ConnectionString);
         SqliteMigrations.Apply(ConnectionString);
 
         await using var reopened = NewContext();

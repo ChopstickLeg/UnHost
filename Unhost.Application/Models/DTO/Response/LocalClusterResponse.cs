@@ -8,4 +8,3 @@ public sealed record ClusterJoinCommandsResponse(string Worker, string Manager)
 {
     public override string ToString() => nameof(ClusterJoinCommandsResponse);
 }
-

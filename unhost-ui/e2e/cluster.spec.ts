@@ -48,7 +48,7 @@ for (const action of ['initialize', 'import'] as const) {
 
       await expect(page.locator('pre code')).toHaveCount(0)
       await page.getByRole('button', { name: 'Show join commands' }).click()
-      await expect(page.locator('pre code')).toHaveCount(2)
+      await expect.poll(() => page.locator('pre code').count()).toBe(2)
       const [worker, manager] = await page.locator('pre code').allTextContents()
       const isJoinCommand = (command?: string) =>
         !!command?.startsWith('docker swarm join --token SWMTKN-') &&
@@ -56,6 +56,17 @@ for (const action of ['initialize', 'import'] as const) {
       expect(isJoinCommand(worker) && isJoinCommand(manager) && worker !== manager).toBe(true)
       await page.getByRole('button', { name: 'Hide join commands' }).click()
       await expect(page.locator('pre code')).toHaveCount(0)
+      if (!worker) throw new Error('The worker join command was missing.')
+      await dockerEngine.withJoinedWorker(worker, async (hostname) => {
+        await expect.poll(async () => {
+          await page.getByRole('button', { name: 'Refresh' }).click()
+          await expect(identity).toHaveText(swarmId)
+          const node = page.getByRole('row').filter({ hasText: hostname })
+          return await node.getByRole('cell', { name: /^worker$/i }).count() === 1 &&
+            await node.getByRole('cell', { name: /^ready$/i }).count() === 1
+        }).toBe(true)
+      })
+      expect(await installation.logsContainJoinToken()).toBe(false)
     }
 
     await installation.recreate()

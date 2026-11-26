@@ -43,9 +43,8 @@ async function clusterRequest(path: string, init?: RequestInit): Promise<Respons
   if (response.ok) return response
   if (response.status === 401) throw new Error('Your session expired. Sign in again and retry.')
   const problem: unknown = await response.json().catch(() => null)
-  throw new Error(isObject(problem) && typeof problem.detail === 'string'
-    ? problem.detail
-    : 'Unable to complete the cluster request. Please try again.')
+  const detail = isObject(problem) && typeof problem.detail === 'string' ? problem.detail.trim() : ''
+  throw new Error(detail || 'Unable to complete the cluster request. Please try again.')
 }
 
 export async function getCluster(): Promise<LocalCluster> {

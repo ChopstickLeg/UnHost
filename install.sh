@@ -29,6 +29,18 @@ docker_local() {
     docker --host "unix://$socket" "$@"
 }
 
+apt_refreshed=false
+refresh_apt() {
+    if ! $apt_refreshed; then
+        apt-get update || return 1
+        apt_refreshed=true
+    fi
+}
+
+apt_has_package() {
+    apt-cache show "$1" 2>/dev/null | awk '/^Package: / { found = 1 } END { exit !found }'
+}
+
 install_docker_packages() {
     [[ -r /etc/os-release ]] || die 'Install Docker Engine and Compose for your distribution, then rerun.'
     # shellcheck source=/dev/null
@@ -41,9 +53,9 @@ install_docker_packages() {
     [[ $codename =~ ^[a-z]+$ ]] || die 'Could not determine the distro release for the Docker package repository.'
 
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update || return 1
+    refresh_apt || return 1
     # Reuse a configured Docker repository instead of adding a second signing key.
-    if apt-cache show "$1" 2>/dev/null | awk '/^Package: / { found = 1 } END { exit !found }'; then
+    if apt_has_package "$1"; then
         apt-get install -y --no-remove "$@"
         return $?
     fi
@@ -82,7 +94,11 @@ if ! command -v docker >/dev/null || { [[ ! -S $socket ]] && ! command -v docker
 fi
 
 swarm_status() {
-    docker_local info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}'
+    local state
+    # Some Docker CLI versions report success without server data when the daemon is down.
+    state=$(docker_local info --format '{{if .ServerVersion}}{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}{{end}}') || return 1
+    [[ -n $state ]] || return 1
+    printf '%s\n' "$state"
 }
 
 if ! swarm=$(swarm_status 2>/dev/null); then
@@ -105,10 +121,12 @@ esac
 
 if ! docker_local compose version >/dev/null 2>&1; then
     printf '%s\n' 'Installing the Docker Compose plugin.'
-    if command -v apt-get >/dev/null && apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+    command -v apt-get >/dev/null || die 'Install the Docker Compose plugin for your distribution, then rerun.'
+    refresh_apt || die 'Could not refresh apt package lists before installing Compose.'
+    if apt_has_package docker-compose-plugin; then
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-remove docker-compose-plugin ||
             die 'Compose installation failed. Review the package manager output above.'
-    elif command -v apt-get >/dev/null && apt-cache show docker-compose-v2 >/dev/null 2>&1; then
+    elif apt_has_package docker-compose-v2; then
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-remove docker-compose-v2 ||
             die 'Compose installation failed. Review the package manager output above.'
     else
@@ -120,10 +138,11 @@ fi
 
 if ! command -v curl >/dev/null; then
     command -v apt-get >/dev/null || die 'Install curl so the installer can check HTTP readiness.'
+    refresh_apt || die 'Could not refresh apt package lists before installing curl.'
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-remove curl ||
         die 'Could not install curl. Review the package manager output above.'
 fi
-socket_gid=$(stat -c '%g' "$socket") || die "Cannot read the group ID of $socket."
+socket_gid=$(stat -Lc '%g' "$socket") || die "Cannot read the group ID of $socket."
 install -d -m 0700 "$install_dir"
 exec 9>"$install_dir/.install.lock"
 flock -n 9 || die 'Another UnHost installer is running.'
@@ -131,14 +150,20 @@ cd "$install_dir"
 
 image=${UNHOST_IMAGE:-}
 if [[ -z $image && -s image.txt ]]; then
-    read -r image < image.txt
+    IFS= read -r image < image.txt || [[ -n $image ]]
 fi
 image=${image:-ghcr.io/chopstickleg/unhost:latest}
 if [[ $image != *@sha256:* ]] || ! docker_local image inspect "$image" >/dev/null 2>&1; then
-    docker_local pull "$image" || die "Could not pull $image."
+    pull_output=$(docker_local pull -- "$image") || die "Could not pull $image."
+    if [[ $image != *@sha256:* ]]; then
+        digest=$(awk '/^Digest: sha256:/ { print $2 }' <<< "$pull_output")
+        repository=$image
+        if [[ ${image##*/} == *:* ]]; then
+            repository=${image%:*}
+        fi
+        image="$repository@$digest"
+    fi
 fi
-image=$(docker_local image inspect --format '{{index .RepoDigests 0}}' "$image") ||
-    die 'Could not pin the UnHost image to a registry digest.'
 [[ $image =~ ^[a-z0-9./:_-]+@sha256:[0-9a-f]{64}$ ]] || die 'Docker did not return a valid image digest.'
 app_uid=$(docker_local image inspect --format '{{.Config.User}}' "$image") ||
     die 'Could not determine the UnHost container user.'
@@ -178,8 +203,6 @@ secrets:
     file: ./bootstrap.txt
 EOF
 mv -f compose.yaml.tmp compose.yaml
-printf '%s\n' "$image" > image.txt.tmp
-mv -f image.txt.tmp image.txt
 
 compose() {
     docker_local compose --file "$install_dir/compose.yaml" --project-name unhost "$@"
@@ -194,6 +217,8 @@ url="http://127.0.0.1:$port"
 for ((attempt = 0; attempt < 30; attempt++)); do
     if status=$(curl --noproxy '*' -fsS --max-time 2 "$url/api/status" 2>/dev/null) &&
         [[ $status == *'"setupComplete":false'* || $status == *'"setupComplete":true'* ]]; then
+        printf '%s\n' "$image" > image.txt.tmp
+        mv -f image.txt.tmp image.txt
         printf 'UnHost is running at %s on this server.\n' "$url"
         if [[ $status == *'"setupComplete":false'* ]]; then
             printf 'For first-run setup, read the bootstrap secret with sudo cat %s/bootstrap.txt\n' "$install_dir"

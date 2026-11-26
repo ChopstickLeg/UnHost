@@ -8,13 +8,21 @@ import { test as base, expect } from '@playwright/test'
 
 const execFileAsync = promisify(execFile)
 
-async function docker(...args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync('docker', args, {
+function runDocker(args: string[]) {
+  return execFileAsync('docker', args, {
     timeout: 60_000,
     maxBuffer: 4 * 1024 * 1024,
     windowsHide: true,
   })
-  return stdout.trim()
+}
+
+async function docker(...args: string[]): Promise<string> {
+  return (await runDocker(args)).stdout.trim()
+}
+
+async function containerLogs(name: string): Promise<string> {
+  const { stdout, stderr } = await runDocker(['logs', name])
+  return stdout + stderr
 }
 
 async function waitUntilReady(url: string) {
@@ -28,6 +36,7 @@ interface Installation {
   url: string
   bootstrapSecret: string
   recreate(): Promise<void>
+  logsContainJoinToken(): Promise<boolean>
 }
 
 interface DockerEngine {
@@ -35,6 +44,7 @@ interface DockerEngine {
   socketVolume: string
   socketGid: string
   initialize(): Promise<void>
+  withJoinedWorker(command: string, use: (hostname: string) => Promise<void>): Promise<void>
 }
 
 export const test = base.extend<{
@@ -61,7 +71,7 @@ export const test = base.extend<{
         await docker('start', name)
         const engine = (...args: string[]) => docker('exec', name, 'docker', '--host', `unix://${socket}`, ...args)
         await expect(async () => {
-          await engine('info', '--format', '{{.ServerVersion}}')
+          expect(await engine('info', '--format', '{{.ServerVersion}}')).not.toBe('')
         }).toPass({ timeout: 30_000, intervals: [250, 500, 1_000] })
         const address = await docker('inspect', '--format', '{{.NetworkSettings.Networks.bridge.IPAddress}}', name)
         const socketGid = await docker('exec', name, 'stat', '-c', '%g', socket)
@@ -70,6 +80,32 @@ export const test = base.extend<{
           socketVolume,
           socketGid,
           async initialize() { await engine('swarm', 'init', '--advertise-addr', address) },
+          async withJoinedWorker(command, use) {
+            const match = /^docker swarm join --token (SWMTKN-[\w-]+) ([\d.]+:2377)$/.exec(command)
+            const token = match?.[1]
+            const target = match?.[2]
+            if (!token || target !== `${address}:2377`) {
+              throw new Error('The displayed worker command did not target the disposable manager.')
+            }
+
+            const worker = `${name}-worker`
+            await docker('create', '--privileged', '--name', worker, '--hostname', worker,
+              'docker:28-dind', 'dockerd', '--host=unix:///var/run/docker.sock')
+            try {
+              await docker('start', worker)
+              await expect(async () => {
+                expect(await docker('exec', worker, 'docker', 'info', '--format', '{{.ServerVersion}}')).not.toBe('')
+              }).toPass({ timeout: 30_000, intervals: [250, 500, 1_000] })
+              try {
+                await docker('exec', worker, 'docker', 'swarm', 'join', '--token', token, target)
+              } catch {
+                throw new Error('The disposable worker could not join using the displayed command.')
+              }
+              await use(worker)
+            } finally {
+              await docker('rm', '--force', '--volumes', worker)
+            }
+          },
         })
       } finally {
         await docker('rm', '--force', '--volumes', name)
@@ -112,6 +148,7 @@ export const test = base.extend<{
       await use({
         url,
         bootstrapSecret,
+        async logsContainJoinToken() { return /SWMTKN-/.test(await containerLogs(name)) },
         async recreate() {
           await docker('rm', '--force', name)
           await runContainer(`127.0.0.1:${port}:8080`)
@@ -125,7 +162,8 @@ export const test = base.extend<{
       const failed = fixtureFailed || testInfo.status !== testInfo.expectedStatus
       if (failed) {
         try {
-          await testInfo.attach('native-container.log', { body: await docker('logs', name), contentType: 'text/plain' })
+          const body = (await containerLogs(name)).replace(/SWMTKN-[\w-]*/gi, '[redacted join token]')
+          await testInfo.attach('native-container.log', { body, contentType: 'text/plain' })
         } catch { /* The container may have failed before it was created. */ }
       }
       for (const args of [['rm', '--force', name], ['volume', 'rm', volume]]) {
