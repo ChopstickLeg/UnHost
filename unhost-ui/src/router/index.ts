@@ -12,10 +12,11 @@ export function createAppRouter(
   const router = createRouter({
     history,
     routes: [
-      { path: '/', redirect: { name: 'dashboard' } },
+      { path: '/', name: 'dashboard', component: DashboardView },
       { path: '/setup', name: 'setup', component: SetupView },
       { path: '/login', name: 'login', component: LoginView },
-      { path: '/dashboard', name: 'dashboard', component: DashboardView },
+      { path: '/dashboard', redirect: { name: 'dashboard' } },
+      { path: '/cluster', redirect: { name: 'dashboard' } },
       { path: '/unavailable', name: 'unavailable', component: ConnectionErrorView },
       { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
     ],

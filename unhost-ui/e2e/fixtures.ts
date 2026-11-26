@@ -30,8 +30,55 @@ interface Installation {
   recreate(): Promise<void>
 }
 
-export const test = base.extend<{ installation: Installation }>({
-  installation: async ({ browserName }, use, testInfo) => {
+interface DockerEngine {
+  address: string
+  socketVolume: string
+  socketGid: string
+  initialize(): Promise<void>
+}
+
+export const test = base.extend<{
+  installation: Installation
+  withDockerEngine: boolean
+  dockerEngine: DockerEngine | null
+}>({
+  withDockerEngine: [false, { option: true }],
+  dockerEngine: async ({ withDockerEngine }, use) => {
+    if (!withDockerEngine) {
+      await use(null)
+      return
+    }
+
+    const name = `unhost-engine-${randomUUID()}`
+    const socketVolume = `${name}-socket`
+    const socket = '/engine/docker.sock'
+    await docker('volume', 'create', socketVolume)
+    try {
+      await docker('create', '--privileged', '--name', name,
+        '--mount', `type=volume,source=${socketVolume},target=/engine`,
+        'docker:28-dind', 'dockerd', '--host', `unix://${socket}`)
+      try {
+        await docker('start', name)
+        const engine = (...args: string[]) => docker('exec', name, 'docker', '--host', `unix://${socket}`, ...args)
+        await expect(async () => {
+          await engine('info', '--format', '{{.ServerVersion}}')
+        }).toPass({ timeout: 30_000, intervals: [250, 500, 1_000] })
+        const address = await docker('inspect', '--format', '{{.NetworkSettings.Networks.bridge.IPAddress}}', name)
+        const socketGid = await docker('exec', name, 'stat', '-c', '%g', socket)
+        await use({
+          address,
+          socketVolume,
+          socketGid,
+          async initialize() { await engine('swarm', 'init', '--advertise-addr', address) },
+        })
+      } finally {
+        await docker('rm', '--force', '--volumes', name)
+      }
+    } finally {
+      await docker('volume', 'rm', socketVolume)
+    }
+  },
+  installation: async ({ browserName, dockerEngine }, use, testInfo) => {
     const image = process.env.UNHOST_SMOKE_IMAGE
     if (!image) throw new Error('Set UNHOST_SMOKE_IMAGE to the locally built Native AOT image before running browser tests.')
     const name = `unhost-browser-${browserName}-${randomUUID()}`
@@ -43,7 +90,13 @@ export const test = base.extend<{ installation: Installation }>({
       'run', '--detach', '--name', name, '--publish', portBinding,
       '--env', 'UnHost__BootstrapSecretFile=/run/secrets/bootstrap',
       '--mount', `type=volume,source=${volume},target=/data`,
-      '--mount', `type=bind,source=${secretPath},target=/run/secrets/bootstrap,readonly`, image,
+      '--mount', `type=bind,source=${secretPath},target=/run/secrets/bootstrap,readonly`,
+      ...(dockerEngine ? [
+        '--group-add', dockerEngine.socketGid,
+        '--env', 'UnHost__DockerSocketPath=/engine/docker.sock',
+        '--mount', `type=volume,source=${dockerEngine.socketVolume},target=/engine`,
+      ] : []),
+      image,
     )
 
     let fixtureFailed = false

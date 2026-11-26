@@ -11,6 +11,12 @@ public sealed class UnhostDbContext(DbContextOptions<UnhostDbContext> options) :
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<LocalSwarm>(swarm =>
+        {
+            swarm.ToTable("LocalSwarms");
+            swarm.Property(x => x.Id).ValueGeneratedNever();
+        });
+
         modelBuilder.Entity<OperatorUser>(user =>
         {
             user.ToTable("AspNetUsers");

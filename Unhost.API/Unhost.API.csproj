@@ -5,7 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <PublishAot>true</PublishAot>
+    <!-- Debug runs under the managed debugger. Release publishes with EF's compiled model. -->
+    <PublishAot Condition="'$(Configuration)' != 'Debug'">true</PublishAot>
     <!-- Infrastructure owns EF generation. The API references a JavaScript project that Roslyn cannot load. -->
     <EFScaffoldModelStage>none</EFScaffoldModelStage>
     <EFPrecompileQueriesStage>none</EFPrecompileQueriesStage>

@@ -17,6 +17,7 @@ public sealed class NativeContainerTests(ITestOutputHelper output)
         var client = container.Client;
         Assert.False((await client.GetFromJsonAsync<StatusResponse>("/api/status"))!.SetupComplete);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/docker/cluster")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/api/auth/logout", null)).StatusCode);
 
         var html = await client.GetStringAsync("/");
@@ -47,6 +48,13 @@ public sealed class NativeContainerTests(ITestOutputHelper output)
         Assert.Contains("secure", setCookie, StringComparison.OrdinalIgnoreCase);
         client.DefaultRequestHeaders.Add("Cookie", setCookie.Split(';')[0]);
         Assert.Equal(email, (await client.GetFromJsonAsync<WhoAmIResponse>("/api/auth/me"))!.Email);
+
+        using var invalidAddress = await client.PostAsJsonAsync("/api/docker/init", new { advertiseAddress = "" });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidAddress.StatusCode);
+        Assert.Equal("application/problem+json", invalidAddress.Content.Headers.ContentType?.MediaType);
+        using var missingDocker = await client.PostAsync("/api/docker/import", null);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, missingDocker.StatusCode);
+        Assert.Equal("application/problem+json", missingDocker.Content.Headers.ContentType?.MediaType);
 
         await container.RecreateAsync();
 

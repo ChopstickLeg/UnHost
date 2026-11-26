@@ -34,7 +34,7 @@ public sealed class DatabaseTests : IDisposable
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM __EFMigrationsHistory";
-        Assert.Equal(1L, command.ExecuteScalar());
+        Assert.Equal(2L, command.ExecuteScalar());
     }
 
     [Fact]
@@ -44,13 +44,16 @@ public sealed class DatabaseTests : IDisposable
         using var connection = new SqliteConnection(ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE __EFMigrationsHistory SET MigrationId = '20990101000000_Unknown'";
+        command.CommandText = """
+            UPDATE __EFMigrationsHistory SET MigrationId = '20990101000000_Unknown'
+            WHERE MigrationId = (SELECT MAX(MigrationId) FROM __EFMigrationsHistory)
+            """;
         command.ExecuteNonQuery();
 
         Assert.Throws<InvalidOperationException>(() => SqliteMigrations.Apply(ConnectionString));
 
-        command.CommandText = "SELECT MigrationId FROM __EFMigrationsHistory";
-        Assert.Equal("20990101000000_Unknown", command.ExecuteScalar());
+        command.CommandText = "SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId = '20990101000000_Unknown'";
+        Assert.Equal(1L, command.ExecuteScalar());
     }
 
     [Fact]

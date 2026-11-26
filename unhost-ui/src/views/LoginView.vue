@@ -40,9 +40,9 @@ async function signIn() {
     <div class="w-full max-w-sm">
       <BrandMark class="mb-8" />
       <h1 class="text-2xl font-semibold">Sign in</h1>
-      <form class="mt-6 space-y-5" :aria-busy="pending" @submit.prevent="signIn">
-        <div class="space-y-2">
-          <Label for="email">Email</Label>
+      <form class="mt-6 flex flex-col gap-5" :aria-busy="pending" @submit.prevent="signIn">
+        <div>
+          <Label for="email" class="mb-2">Email</Label>
           <Input
             id="email"
             v-model="email"
@@ -52,8 +52,8 @@ async function signIn() {
             :disabled="pending"
           />
         </div>
-        <div class="space-y-2">
-          <Label for="password">Password</Label>
+        <div>
+          <Label for="password" class="mb-2">Password</Label>
           <Input
             id="password"
             v-model="password"

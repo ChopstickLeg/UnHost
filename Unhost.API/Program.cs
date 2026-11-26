@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using Unhost.API.Endpoints;
 using Unhost.Application.Models.Database;
 using Unhost.Infrastructure.Database;
+using Unhost.Infrastructure.Docker;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 var dataDirectory = Path.GetFullPath(builder.Configuration["UnHost:DataDirectory"] ?? ".");
@@ -39,6 +40,7 @@ builder.Services.ConfigureApplicationCookie(options =>
 });
 
 builder.Services.AddAuthorization();
+builder.Services.AddProblemDetails();
 
 builder.Services.AddValidation();
 
@@ -51,6 +53,9 @@ builder.Services.AddDbContext<UnhostDbContext>(options =>
 
 builder.Services.AddScoped<FirstRunSetup>();
 builder.Services.AddScoped<EfOperatorStore>();
+builder.Services.AddScoped<LocalSwarmStore>();
+var dockerSocketPath = builder.Configuration["UnHost:DockerSocketPath"] ?? "/var/run/docker.sock";
+builder.Services.AddSingleton(_ => new DockerService(dockerSocketPath));
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
@@ -68,6 +73,7 @@ var apiEndpoints = app.MapGroup("/api")
 
 apiEndpoints.MapIdentityEndpoints();
 apiEndpoints.MapStatusEndpoints();
+apiEndpoints.MapDockerEndpoints();
 
 app.MapFallback("/api/{**path}", () => Results.NotFound());
 app.MapFallbackToFile("index.html");
