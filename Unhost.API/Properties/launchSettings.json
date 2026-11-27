@@ -5,11 +5,25 @@
       "launchBrowser": true,
       "launchUrl": "",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "UnHost__DataDirectory": "../.secrets/debug-data",
+        "UnHost__BootstrapSecretFile": "../.secrets/bootstrap.txt"
       },
       "dotnetRunMessages": true,
       "applicationUrl": "http://localhost:5189",
       "hotReloadEnabled": false
+    },
+    "Ubuntu (WSL)": {
+      "commandName": "WSL",
+      "distributionName": "Ubuntu",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5189",
+        "UnHost__DataDirectory": "../.secrets/wsl-debug-data",
+        "UnHost__BootstrapSecretFile": "../.secrets/bootstrap.txt",
+        "UnHost__DockerSocketPath": "/tmp/unhost-debug-engine/docker.sock"
+      }
     }
   },
   "$schema": "https://json.schemastore.org/launchsettings.json"

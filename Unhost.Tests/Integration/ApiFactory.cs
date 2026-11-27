@@ -8,6 +8,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     private bool cleanedUp;
     public string DataDirectory { get; } = Path.Combine(Path.GetTempPath(), "unhost-tests", Guid.NewGuid().ToString("N"));
+    public string? DockerSocketPath { get; init; }
     public const string BootstrapSecret = "test-only-bootstrap-secret-with-enough-entropy";
 
     public ApiFactory()
@@ -21,6 +22,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.UseSetting("UnHost:DataDirectory", DataDirectory);
         builder.UseSetting("UnHost:BootstrapSecretFile", Path.Combine(DataDirectory, "bootstrap.txt"));
+        if (DockerSocketPath is not null) builder.UseSetting("UnHost:DockerSocketPath", DockerSocketPath);
     }
 
     public HttpClient NewClient() => CreateClient(new WebApplicationFactoryClientOptions

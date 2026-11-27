@@ -17,15 +17,25 @@ public sealed class DatabaseTests : IDisposable
     private UnhostDbContext NewContext() => new(new DbContextOptionsBuilder<UnhostDbContext>().UseSqlite(ConnectionString).Options);
 
     [Fact]
-    public async Task Migrations_CanRunTwiceWithoutLosingOperatorData()
+    public async Task Migrations_UpgradeFromIdentitySchemaWithoutLosingOperatorData()
     {
-        SqliteMigrations.Apply(ConnectionString);
+        using (var legacyConnection = new SqliteConnection(ConnectionString))
+        {
+            legacyConnection.Open();
+            using var initializeSchema = legacyConnection.CreateCommand();
+            using var originalSchema = typeof(SqliteMigrations).Assembly.GetManifestResourceStream(
+                "Unhost.Infrastructure.Database.Migrations.Sql.20261118021924_InitialCreate.sql")!;
+            using var reader = new StreamReader(originalSchema);
+            initializeSchema.CommandText = await reader.ReadToEndAsync();
+            await initializeSchema.ExecuteNonQueryAsync();
+        }
         await using (var context = NewContext())
         {
             context.Operators.Add(new OperatorUser { Id = "retained", Email = "retained@example.com" });
             await context.SaveChangesAsync();
         }
 
+        SqliteMigrations.Apply(ConnectionString);
         SqliteMigrations.Apply(ConnectionString);
 
         await using var reopened = NewContext();
@@ -34,7 +44,7 @@ public sealed class DatabaseTests : IDisposable
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM __EFMigrationsHistory";
-        Assert.Equal(1L, command.ExecuteScalar());
+        Assert.Equal(2L, command.ExecuteScalar());
     }
 
     [Fact]
@@ -44,13 +54,16 @@ public sealed class DatabaseTests : IDisposable
         using var connection = new SqliteConnection(ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE __EFMigrationsHistory SET MigrationId = '20990101000000_Unknown'";
+        command.CommandText = """
+            UPDATE __EFMigrationsHistory SET MigrationId = '20990101000000_Unknown'
+            WHERE MigrationId = (SELECT MAX(MigrationId) FROM __EFMigrationsHistory)
+            """;
         command.ExecuteNonQuery();
 
         Assert.Throws<InvalidOperationException>(() => SqliteMigrations.Apply(ConnectionString));
 
-        command.CommandText = "SELECT MigrationId FROM __EFMigrationsHistory";
-        Assert.Equal("20990101000000_Unknown", command.ExecuteScalar());
+        command.CommandText = "SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId = '20990101000000_Unknown'";
+        Assert.Equal(1L, command.ExecuteScalar());
     }
 
     [Fact]

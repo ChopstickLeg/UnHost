@@ -20,4 +20,8 @@
     <EmbeddedResource Include="Database\Migrations\Sql\*.sql" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Docker\Models\" />
+  </ItemGroup>
+
 </Project>

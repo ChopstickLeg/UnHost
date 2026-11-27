@@ -15,7 +15,7 @@ partial class UnhostDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261118021924_InitialCreate";
+    public override string LastMigrationId => "20261125030026_AddLocalSwarms";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -94,6 +94,16 @@ partial class UnhostDbContextModelSnapshot : ModelSnapshot
                     {
                         t.HasCheckConstraint("CK_InstallationSetup_SingleRow", "Id = 1");
                     });
+            });
+
+        modelBuilder.Entity("Unhost.Infrastructure.Database.LocalSwarm", b =>
+            {
+                b.Property<string>("Id")
+                    .HasColumnType("TEXT");
+
+                b.HasKey("Id");
+
+                b.ToTable("LocalSwarms");
             });
 #pragma warning restore 612, 618
     }

@@ -18,6 +18,23 @@ env:
   DOTNET_NOLOGO: '1'
 
 jobs:
+  installer:
+    name: Installer (${{ matrix.host }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [clean, stopped, manager, worker]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Exercise the installer on a disposable host
+        env:
+          HOST_STATE: ${{ matrix.host }}
+        run: bash .github/test-installer.sh "$HOST_STATE"
+
   backend:
     name: C# unit and integration tests
     runs-on: ubuntu-latest

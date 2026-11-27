@@ -41,6 +41,29 @@ Playwright starts a fresh container and volume for each test and drives headless
 
 [CI](.github/workflows/ci.yml) runs on pull requests, pushes to `main`, and manual dispatch. C# and TypeScript checks must pass before it builds the Linux x64 Native AOT image and runs the HTTP smoke tests and Playwright browser tests against it. Successful runs upload the test reports and a `unhost-linux-x64` artifact containing the executable and UI. Pushes to `main` also publish the exact tested image to `ghcr.io/chopstickleg/unhost:latest` and `ghcr.io/chopstickleg/unhost:sha-<full-commit-sha>`, using the workflow's `GITHUB_TOKEN`. Pull requests do not publish images. The repository must allow GitHub Actions and grant its token package write access for publication.
 
+## Debug locally in Visual Studio
+
+Use the **Debug** configuration and the **http** launch profile for `Unhost.API`. Press **F5** to use managed breakpoints. The profile uses `http://localhost:5189` and saves SQLite data and session keys in `.secrets/debug-data`.
+
+On a fresh checkout, create `.secrets/bootstrap.txt` using the PowerShell snippet below. Run the Vue dev server from the repository root for hot reload.
+
+```powershell
+npm.cmd ci --prefix unhost-ui
+npm.cmd run dev --prefix unhost-ui
+```
+
+Open `http://localhost:54902` and use the bootstrap secret to create your local operator. The Vue dev server proxies API requests to Visual Studio.
+
+For Docker and Swarm breakpoints, start the isolated throwaway Docker engine (`docker:28-dind`) so Swarm changes never touch Docker Desktop, then select **Ubuntu (WSL)** and press **F5**:
+
+```powershell
+.\scripts\debug-engine.ps1 start
+```
+
+Visual Studio needs the **.NET Debugging with WSL** component, and Ubuntu needs .NET 11 on `PATH`. The profile uses the same API port and bootstrap key as the Windows profile, its own database in `.secrets/wsl-debug-data`, and the throwaway engine socket at `/tmp/unhost-debug-engine/docker.sock`. Use `eth0` (or the container IP printed by the script) as the advertise address when initializing Swarm. Use `.\scripts\debug-engine.ps1 reset` to wipe and recreate a fresh standalone engine, or `.\scripts\debug-engine.ps1 stop` to remove it.
+
+Use the Compose path for Linux Native AOT checks.
+
 ## Run locally with Docker Compose
 
 Use Docker Desktop with Linux containers. From the repository root, create a local bootstrap secret once:
@@ -71,6 +94,22 @@ Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/setup' -Cont
 Then sign in through the UI. The secret stays out of Git and the image build context and mounts read-only through a Compose secret.
 
 Re-run `docker compose up --build` after code changes. This setup runs the published Native AOT executable, so it does not provide hot reload or managed debugger attachment. Use `docker compose logs -f unhost` to follow logs. `docker compose down` stops the app and keeps the SQLite database and cookie keys in the `unhost-data` volume. To erase local data and repeat first-run setup, use `docker compose down --volumes`.
+
+## Install on a Linux server
+
+Run this command from a checkout on the host that will run UnHost.
+
+```bash
+sudo bash install.sh
+```
+
+The installer can install Docker Engine and the Compose plugin on Ubuntu and Debian releases supported by Docker's package repository. On other Linux distributions, install Docker Engine, the Compose plugin, and curl first. The installer checks the local Engine, stops on a Swarm worker, and starts UnHost on a standalone Engine or a manager. Swarm initialization and import are separate operator actions.
+
+UnHost uses a named data volume and keeps its installer configuration under `/opt/unhost`. The installer pins the image digest on first install and reuses it on subsequent runs. Use `sudo UNHOST_IMAGE=ghcr.io/chopstickleg/unhost:sha-<commit> bash install.sh` to select a specific published build. The installer mounts the local Docker socket, which grants UnHost administrative access to the Engine.
+
+The setup page listens on loopback. To open it from another machine, run `ssh -L 8080:127.0.0.1:8080 user@server` and browse to `http://localhost:8080`. Read the bootstrap secret on the server with `sudo cat /opt/unhost/bootstrap.txt`. Set `UNHOST_PORT` when running the installer to use a different port.
+
+CI exercises the installer on separate Ubuntu VMs with Docker removed, Docker stopped, an active Swarm manager, and an active worker. The installer tests use a local fixture image. The Native AOT smoke and browser jobs exercise the UnHost application image.
 
 ## First-run setup
 

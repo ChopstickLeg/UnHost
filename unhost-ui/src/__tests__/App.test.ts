@@ -8,6 +8,13 @@ import { session } from '../lib/session'
 enableAutoUnmount(afterEach)
 const fetchMock = vi.fn<typeof fetch>()
 const email = 'operator@example.com'
+const disconnectedCluster = {
+  state: 'disconnected',
+  engineVersion: null,
+  swarmId: null,
+  imported: false,
+  nodes: [],
+}
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -63,21 +70,26 @@ describe('operator UI integration', () => {
     expect(wrapper.get('[role="status"]').text()).toContain('Account created')
     await wrapper.get('#email').setValue(email)
     await wrapper.get('#password').setValue('Password123!')
-    fetchMock.mockResolvedValueOnce(new Response()).mockResolvedValueOnce(json({ email }))
+    fetchMock
+      .mockResolvedValueOnce(new Response())
+      .mockResolvedValueOnce(json({ email }))
+      .mockResolvedValueOnce(json(disconnectedCluster))
 
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
     expect(wrapper.get('h1').text()).toBe('Dashboard')
-    expect(router.currentRoute.value.path).toBe('/dashboard')
+    expect(router.currentRoute.value.path).toBe('/')
+    expect(wrapper.get('header a').attributes('href')).toBe('/')
     expect(wrapper.text()).toContain(email)
+    expect(wrapper.text()).toContain('Local cluster')
     fetchMock.mockResolvedValueOnce(new Response())
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(wrapper.get('h1').text()).toBe('Sign in')
     expect(wrapper.text()).not.toContain('Dashboard')
     expect(router.currentRoute.value.path).toBe('/login')
-    await router.push('/dashboard')
+    await router.push('/')
     expect(router.currentRoute.value.path).toBe('/login')
     expect(wrapper.get('h1').text()).toBe('Sign in')
   })
@@ -86,10 +98,12 @@ describe('operator UI integration', () => {
     fetchMock
       .mockResolvedValueOnce(json({ setupComplete: true }))
       .mockResolvedValueOnce(json({ email }))
-    const { wrapper, router } = await mountAt('/dashboard')
-    expect(router.currentRoute.value.path).toBe('/dashboard')
+      .mockResolvedValueOnce(json(disconnectedCluster))
+    const { wrapper, router } = await mountAt('/')
+    expect(router.currentRoute.value.path).toBe('/')
     expect(wrapper.get('h1').text()).toBe('Dashboard')
     expect(wrapper.text()).toContain(email)
+    expect(wrapper.text()).toContain('Local cluster')
     expect(wrapper.find('form').exists()).toBe(false)
   })
 
@@ -97,7 +111,7 @@ describe('operator UI integration', () => {
     fetchMock
       .mockResolvedValueOnce(json({ setupComplete: true }))
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
-    const { wrapper } = await mountAt('/dashboard')
+    const { wrapper } = await mountAt('/')
     expect(wrapper.get('h1').text()).toBe('Sign in')
     expect(wrapper.text()).not.toContain('Dashboard')
     await wrapper.get('#email').setValue(email)
@@ -125,7 +139,7 @@ describe('operator UI integration', () => {
 
   it('can retry a failed initial status request', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('offline'))
-    const { wrapper } = await mountAt('/dashboard')
+    const { wrapper } = await mountAt('/')
     expect(wrapper.get('[role="alert"]').text()).toContain('Cannot reach UnHost')
     fetchMock
       .mockResolvedValueOnce(json({ setupComplete: true }))
@@ -139,7 +153,8 @@ describe('operator UI integration', () => {
     fetchMock
       .mockResolvedValueOnce(json({ setupComplete: true }))
       .mockResolvedValueOnce(json({ email }))
-    const { wrapper } = await mountAt('/dashboard')
+      .mockResolvedValueOnce(json(disconnectedCluster))
+    const { wrapper } = await mountAt('/')
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }))
     await wrapper.get('button').trigger('click')
     await flushPromises()
@@ -158,7 +173,7 @@ describe('operator UI integration', () => {
     },
     {
       name: 'dashboard before setup',
-      path: '/dashboard',
+      path: '/',
       setupComplete: false,
       signedIn: false,
       destination: '/setup',
@@ -174,7 +189,7 @@ describe('operator UI integration', () => {
     },
     {
       name: 'dashboard without a session',
-      path: '/dashboard',
+      path: '/',
       setupComplete: true,
       signedIn: false,
       destination: '/login',
@@ -185,7 +200,7 @@ describe('operator UI integration', () => {
       path: '/setup',
       setupComplete: true,
       signedIn: true,
-      destination: '/dashboard',
+      destination: '/',
       heading: 'Dashboard',
     },
     {
@@ -193,15 +208,25 @@ describe('operator UI integration', () => {
       path: '/login',
       setupComplete: true,
       signedIn: true,
-      destination: '/dashboard',
+      destination: '/',
+      heading: 'Dashboard',
+    },
+    {
+      name: 'cluster URL with a session',
+      path: '/cluster',
+      setupComplete: true,
+      signedIn: true,
+      destination: '/',
       heading: 'Dashboard',
     },
   ])('redirects $name', async ({ path, setupComplete, signedIn, destination, heading }) => {
     fetchMock.mockResolvedValueOnce(json({ setupComplete }))
-    if (setupComplete)
+    if (setupComplete) {
       fetchMock.mockResolvedValueOnce(
         signedIn ? json({ email }) : new Response(null, { status: 401 }),
       )
+      if (signedIn) fetchMock.mockResolvedValueOnce(json(disconnectedCluster))
+    }
     const { wrapper, router } = await mountAt(path)
     expect(router.currentRoute.value.path).toBe(destination)
     expect(wrapper.get('h1').text()).toBe(heading)

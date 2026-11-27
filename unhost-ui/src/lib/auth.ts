@@ -11,12 +11,12 @@ export type Credentials =
   | (AccountCredentials & { kind: 'login' })
   | (AccountCredentials & { kind: 'setup'; bootstrapSecret: string })
 
-async function request(path: string, init?: RequestInit): Promise<Response> {
+export async function request(path: string, init?: RequestInit, timeout = 15_000): Promise<Response> {
   try {
     const response = await fetch(`/api/${path}`, {
       ...init,
       credentials: 'same-origin',
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(timeout),
     })
     if (response.redirected) {
       throw new Error('The server redirected the request. Check the UnHost server configuration.')

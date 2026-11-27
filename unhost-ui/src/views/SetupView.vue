@@ -43,9 +43,9 @@ async function createAccount() {
       <BrandMark class="mb-8" />
       <h1 class="text-2xl font-semibold">Set up UnHost</h1>
       <p class="mt-2 text-sm text-muted-foreground">Create your operator account.</p>
-      <form class="mt-6 space-y-5" :aria-busy="pending" @submit.prevent="createAccount">
-        <div class="space-y-2">
-          <Label for="email">Email</Label>
+      <form class="mt-6 flex flex-col gap-5" :aria-busy="pending" @submit.prevent="createAccount">
+        <div>
+          <Label for="email" class="mb-2">Email</Label>
           <Input
             id="email"
             v-model="email"
@@ -55,8 +55,8 @@ async function createAccount() {
             :disabled="pending"
           />
         </div>
-        <div class="space-y-2">
-          <Label for="password">Password</Label>
+        <div>
+          <Label for="password" class="mb-2">Password</Label>
           <Input
             id="password"
             v-model="password"
@@ -67,12 +67,12 @@ async function createAccount() {
             required
             :disabled="pending"
           />
-          <p id="password-hint" class="text-sm leading-5 text-muted-foreground">
+          <p id="password-hint" class="mt-2 text-sm leading-5 text-muted-foreground">
             Use at least 6 characters with uppercase, lowercase, a number, and a symbol.
           </p>
         </div>
-        <div class="space-y-2">
-          <Label for="setup-key">Setup key</Label>
+        <div>
+          <Label for="setup-key" class="mb-2">Setup key</Label>
           <Input
             id="setup-key"
             v-model="bootstrapSecret"
@@ -82,7 +82,7 @@ async function createAccount() {
             required
             :disabled="pending"
           />
-          <p id="setup-key-hint" class="text-sm leading-5 text-muted-foreground">
+          <p id="setup-key-hint" class="mt-2 text-sm leading-5 text-muted-foreground">
             Enter the bootstrap secret configured for this instance.
           </p>
         </div>
